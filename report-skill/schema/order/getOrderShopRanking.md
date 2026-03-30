@@ -11,6 +11,7 @@
   调用方不需要传 `groupId` 和 `userId`，服务端会根据 `X-OpenClaw-PublicKey` 自动补齐绑定身份。
   `metricsType` 为必填，决定门店排行的排序指标。
   当用户只说“门店榜单 / 门店排行”而未指定指标时，skill 默认按营业额榜单处理，即 `metricsType = 1`。
+  `report_proxy.py` 会把该接口的 `period` 强制覆盖为 `3`，调用方无需自行维护该值。
   服务端会强制 `queryType = 1`，并把 `limitNum` 固定为 `5`。
   当 `flag` 为空时，服务端默认按 `2-营业日` 处理。
   当 `groupKey` 为空时，服务端默认按 `1-门店` 处理。

@@ -10,6 +10,8 @@ from report_proxy import (
     build_bridge_url,
     compact_result,
     extract_business_result,
+    normalize_payload,
+    validate_supported_path,
 )
 
 
@@ -34,6 +36,28 @@ class ReportProxyTest(unittest.TestCase):
         self.assertEqual("POST", payload["method"])
         self.assertEqual('{"flag":2,"startDate":20250601}', payload["payload"])
         self.assertEqual('{"traceId":"demo"}', payload["query"])
+
+    def test_shop_ranking_payload_forces_period_to_three(self):
+        payload = normalize_payload("/report/getOrderShopRanking", {"metricsType": 1, "period": 1, "flag": 2})
+        bridge_payload = build_bridge_payload("POST", payload, None, "/report/getOrderShopRanking", "public-key-demo")
+
+        self.assertEqual('{"metricsType":1,"period":3,"flag":2}', bridge_payload["payload"])
+
+    def test_validate_supported_path_accepts_documented_member_route(self):
+        self.assertEqual(
+            "/report/scrm/member/customerPeriodSummary",
+            validate_supported_path("/report/scrm/member/customerPeriodSummary"),
+        )
+
+    def test_validate_supported_path_rejects_unknown_member_route_with_candidates(self):
+        with self.assertRaises(ValueError) as context:
+            validate_supported_path("/report/memberSummary")
+
+        message = str(context.exception)
+        self.assertIn("/report/memberSummary", message)
+        self.assertIn("/report/scrm/member/customerTotalSummary", message)
+        self.assertIn("/report/scrm/member/customerPeriodSummary", message)
+        self.assertIn("./api/member.md", message)
 
     def test_extract_business_result_unwraps_bridge_success_payload(self):
         response_json = {

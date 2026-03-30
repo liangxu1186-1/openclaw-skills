@@ -16,11 +16,19 @@ https://github.com/liangxu1186-1/openclaw-skills.git
 rm -rf /tmp/openclaw-skills-quickstart
 git clone https://github.com/liangxu1186-1/openclaw-skills.git /tmp/openclaw-skills-quickstart
 mkdir -p ~/.openclaw/skills
+ls -la /tmp/openclaw-skills-quickstart
 cp -R /tmp/openclaw-skills-quickstart/generate_binding_qr ~/.openclaw/skills/
 cp -R /tmp/openclaw-skills-quickstart/report-skill ~/.openclaw/skills/
 cp -R /tmp/openclaw-skills-quickstart/setup-report-agent ~/.openclaw/skills/
 openclaw gateway restart
-如果安装失败，请明确告诉我失败原因，不要只说已经完成。
+安装后请继续检查：
+1. /tmp/openclaw-skills-quickstart/report-skill 是否存在
+2. ~/.openclaw/skills/report-skill 是否存在
+3. ~/.openclaw/skills/generate_binding_qr 是否存在
+4. ~/.openclaw/skills/setup-report-agent 是否存在
+5. gateway 是否已经重启成功
+如果其中任何一项不存在，请明确告诉我失败原因，不要只说已经完成。
+如果 /tmp/openclaw-skills-quickstart/report-skill 不存在，请直接告诉我“GitHub 仓库里当前缺少 report-skill，不能继续启用报表助手”，不要继续执行下一步。
 ```
 
 安装成功后，再发一句：
@@ -41,8 +49,7 @@ openclaw gateway restart
 
 ```text
 请帮我生成云助手绑定二维码。
-请直接执行绑定二维码 skill，不要只回复说明文字。
-如果二维码生成成功，请直接把二维码显示出来，不要只回复文字说明。
+
 ```
 
 看到二维码后：
@@ -67,16 +74,19 @@ openclaw gateway restart
 
 ```text
 请严格按下面步骤启用报表助手，不要只介绍功能，不要给我选项：
-1. 先确认 ~/.openclaw/skills/setup-report-agent/scripts/setup_report_agent.py 是否存在
-2. 然后直接执行：
+1. 先确认 ~/.openclaw/skills/report-skill 是否存在
+2. 再确认 ~/.openclaw/skills/setup-report-agent/scripts/setup_report_agent.py 是否存在
+3. 如果 ~/.openclaw/skills/report-skill 不存在，请直接告诉我“报表技能没有安装成功，不能启用报表助手”，不要继续往下执行
+4. 然后直接执行：
 python3 ~/.openclaw/skills/setup-report-agent/scripts/setup_report_agent.py
-3. 如果脚本执行成功，再执行：
+5. 如果脚本执行成功，再执行：
 openclaw gateway restart
 完成后请明确告诉我：
 1. report 是否已经写入 openclaw.json
 2. ~/.openclaw/workspace-report 是否已经创建
 3. AGENTS.md、SOUL.md、TOOLS.md 是否已经写入
-4. 我现在是否可以开始使用报表助手
+4. ~/.openclaw/skills/report-skill 是否存在
+5. 我现在是否可以开始使用报表助手
 如果失败，请直接告诉我失败原因。
 ```
 

@@ -9,6 +9,7 @@ warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL 1.1.
 
 import requests
 from compactors import compact_result as compact_result_impl
+from route_catalog import get_supported_route, validate_supported_path
 
 BRIDGE_PROXY_PATH = "/report/openclaw/bridge"
 PUBLIC_KEY_HEADER = "X-OpenClaw-PublicKey"
@@ -20,8 +21,6 @@ METHOD_FIELD = "method"
 DEFAULT_TIMEOUT = 10
 DEFAULT_STATE_DIR = "~/.openclaw"
 DEFAULT_SAAS_API_URL = "https://test-shop-kaci.shouqianba.com"
-
-
 def normalize_api_path(api_path):
     if not api_path:
         raise ValueError("path 不能为空")
@@ -47,9 +46,21 @@ def serialize_json_value(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def normalize_payload(api_path, payload):
+    if not isinstance(payload, dict):
+        return payload
+
+    normalized_path = validate_supported_path(api_path, normalize_path=normalize_api_path)
+    normalized_payload = dict(payload)
+    _, route_config = get_supported_route(normalized_path, normalize_path=normalize_api_path)
+    forced_payload = (route_config or {}).get("forced_payload", {})
+    normalized_payload.update(forced_payload)
+    return normalized_payload
+
+
 def build_bridge_payload(method, payload, query, api_path, public_key):
     return {
-        TARGET_PATH_PARAM: normalize_api_path(api_path),
+        TARGET_PATH_PARAM: validate_supported_path(api_path, normalize_path=normalize_api_path),
         PUBLIC_KEY_FIELD: public_key,
         METHOD_FIELD: method,
         PAYLOAD_FIELD: serialize_json_value(payload),
@@ -173,10 +184,12 @@ def main():
     if not base_url:
         raise RuntimeError("SAAS_API_URL 未配置，且默认 SaaS API 地址为空")
 
+    validate_supported_path(args.path, normalize_path=normalize_api_path)
     payload = parse_json_arg(args.payload, "payload")
     query = parse_json_arg(args.query, "query")
     url = build_bridge_url(base_url)
-    bridge_payload = build_bridge_payload(args.method, payload, query, args.path, public_key)
+    normalized_payload = normalize_payload(args.path, payload)
+    bridge_payload = build_bridge_payload(args.method, normalized_payload, query, args.path, public_key)
 
     response = requests.post(
         url=url,
@@ -195,7 +208,7 @@ def main():
         print(response.text)
         return
 
-    result = compact_result(args.path, payload, result)
+    result = compact_result(args.path, normalized_payload, result)
     print(json.dumps(result, ensure_ascii=False))
 
 

@@ -146,7 +146,9 @@ def generate_binding_qr_png(public_key: Optional[str] = None) -> Union[bytes, st
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
             box_size=4,
-            border=2,
+            # Keep the standard QR quiet zone so the image does not look clipped
+            # in the UI and remains easier to scan.
+            border=4,
         )
         qr.add_data(payload)
         qr.make(fit=True)
@@ -177,39 +179,6 @@ def render_markdown_result(media_path: str) -> str:
 生成完成后，请使用微信搜索 **“云助手”** 小程序，或直接打开小程序后点击扫码功能扫码绑定：
 
 ![扫码绑定]({media_path})
-
-安全提示：此二维码包含当前实例唯一身份标识，请勿发送给陌生人。二维码有效期为 {QR_DURATION_LABEL}。"""
-
-
-def workspace_relative_media_path(file_path: Path, workspace_root: Path) -> str:
-    try:
-        rel = file_path.relative_to(workspace_root)
-        return f"./{rel.as_posix()}"
-    except ValueError:
-        return file_path.as_posix()
-
-
-def ensure_safe_workspace_dir(base_dir: Path) -> Path:
-    base_dir.mkdir(parents=True, exist_ok=True)
-    return base_dir
-
-
-def write_media_file(png_bytes: bytes, output_dir: Optional[str] = None) -> str:
-    workspace_root = Path.cwd().resolve()
-    target_dir = ensure_safe_workspace_dir(
-        (workspace_root / (output_dir or ".openclaw-media")).resolve()
-    )
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    file_path = target_dir / f"binding-qr-{timestamp}.png"
-    file_path.write_bytes(png_bytes)
-    return workspace_relative_media_path(file_path, workspace_root)
-
-
-def render_media_directive_result(media_path: str) -> str:
-    return f"""### 绑定您的云助手
-生成完成后，请使用微信搜索 **“云助手”** 小程序，或直接打开小程序后点击扫码功能扫码绑定：
-
-MEDIA:{media_path}
 
 安全提示：此二维码包含当前实例唯一身份标识，请勿发送给陌生人。二维码有效期为 {QR_DURATION_LABEL}。"""
 
@@ -251,7 +220,7 @@ def run_warmup(trace: bool):
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
             box_size=2,
-            border=1,
+            border=2,
         )
         qr.add_data(payload)
         qr.make(fit=True)
@@ -285,14 +254,9 @@ def main() -> None:
     parser.add_argument("--public-key", help="Explicit public key content", default=None)
     parser.add_argument(
         "--format",
-        choices=["data-url", "markdown", "media-directive"],
+        choices=["data-url", "markdown"],
         default="data-url",
-        help="Output raw data URL, Markdown with inline data URL, or a MEDIA directive reply.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=".openclaw-media",
-        help="Directory relative to the current workspace for MEDIA directive image files.",
+        help="Output raw data URL or Markdown with inline data URL.",
     )
     parser.add_argument("--healthcheck", action="store_true", help="检查依赖与密钥可用性")
     parser.add_argument("--warmup", action="store_true", help="执行预热，在内存生成一次二维码")
@@ -315,16 +279,6 @@ def main() -> None:
 
         image_data_url = f"data:image/png;base64,{base64.b64encode(png_bytes).decode('utf-8')}"
         print(render_markdown_result(image_data_url))
-        return
-
-    if args.format == "media-directive":
-        png_bytes = generate_binding_qr_png(args.public_key)
-        if isinstance(png_bytes, str):
-            print(png_bytes)
-            return
-
-        media_path = write_media_file(png_bytes, args.output_dir)
-        print(render_media_directive_result(media_path))
         return
 
     print(generate_binding_qr(args.public_key))

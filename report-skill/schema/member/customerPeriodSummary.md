@@ -12,6 +12,7 @@
   服务端会强制把 `stime`、`etime` 从 8 位日期扩展为 `yyyyMMdd000000` 到 `yyyyMMdd235959`。
   服务端会自动计算上期区间，并按配置项 `querySame` 决定是否计算同比；当同比关闭时，`sameConsumeCountRate`、`sameDisFrontOrderAverageRate`、`sameOrderNumRate` 会返回 `0`。
   服务端会补充 `startPt`、`endPt` 作为缓存与数仓查询边界，通常无需调用方传递。
+  `report_proxy.py` 会额外返回一个带中文指标名的 `metrics` 列表，适合直接渲染“本期 / 上期”表格；当 `metrics` 存在时，优先基于它回答，不要再自行拼接字段。
   若 `brandIdList` 过滤后没有可用卡方案，接口会直接返回空对象。
 
 ## 分析侧重点
