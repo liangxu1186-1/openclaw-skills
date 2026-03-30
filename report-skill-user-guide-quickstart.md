@@ -1,124 +1,101 @@
-# 全来店报表数据技能快速说明
+# 全来店报表助手快速说明
 
-这份文档只保留最重要的几步：
+这份文档只给普通用户看。
 
-1. 在 OpenClaw 中安装技能
-2. 绑定云助手
-3. 启用报表助手
-4. 开始使用
+你不用自己打开终端执行命令，但发给 OpenClaw 的内容里要带上明确命令。这样它更容易一次执行成功，不会自己猜路径。
 
 ---
 
-## 一、在 OpenClaw 中安装技能
+## 一、安装报表技能
 
-把下面整段话直接发给 OpenClaw：
+新开会话，把这段话直接发给 OpenClaw：
 
 ```text
-请帮我下载安装全来店报表数据技能，并重启服务
+请严格按下面命令安装全来店报表相关技能，不要省略步骤，不要改写命令；安装完成后重启服务，并明确告诉我是否安装成功：
 https://github.com/liangxu1186-1/openclaw-skills.git
+rm -rf /tmp/openclaw-skills-quickstart
+git clone https://github.com/liangxu1186-1/openclaw-skills.git /tmp/openclaw-skills-quickstart
 mkdir -p ~/.openclaw/skills
-cp -R openclaw-skills/generate_binding_qr ~/.openclaw/skills/
-cp -R openclaw-skills/report-skill ~/.openclaw/skills/
-cp -R openclaw-skills/setup-report-agent ~/.openclaw/skills/
+cp -R /tmp/openclaw-skills-quickstart/generate_binding_qr ~/.openclaw/skills/
+cp -R /tmp/openclaw-skills-quickstart/report-skill ~/.openclaw/skills/
+cp -R /tmp/openclaw-skills-quickstart/setup-report-agent ~/.openclaw/skills/
 openclaw gateway restart
+如果安装失败，请明确告诉我失败原因，不要只说已经完成。
 ```
 
-这段话会让 OpenClaw 自动完成：
-
-1. 下载技能仓库
-2. 创建 `~/.openclaw/skills` 目录
-3. 安装 `generate_binding_qr`
-4. 安装 `report-skill`
-5. 安装 `setup-report-agent`
-6. 重启 OpenClaw 本地服务
-
-安装完成后，你可以继续对 OpenClaw 说：
+安装成功后，再发一句：
 
 ```text
-请帮我确认全来店报表数据技能是否已经安装成功
+请帮我确认全来店报表相关技能是否已经安装成功，并告诉我下面这些检查结果：
+1. ~/.openclaw/skills/generate_binding_qr 是否存在
+2. ~/.openclaw/skills/report-skill 是否存在
+3. ~/.openclaw/skills/setup-report-agent 是否存在
+4. gateway 是否已经重启成功
 ```
 
 ---
 
 ## 二、绑定云助手
 
-安装完技能后，下一步就是绑定云助手。你可以直接对 OpenClaw 说：
+把这段话直接发给 OpenClaw：
 
 ```text
-请帮我生成云助手绑定二维码
+请帮我生成云助手绑定二维码。
+请直接执行绑定二维码 skill，不要只回复说明文字。
+如果二维码生成成功，请直接把二维码显示出来，不要只回复文字说明。
 ```
 
-或者：
-
-```text
-绑定云助手
-```
-
-正常情况下，OpenClaw 会直接生成一个二维码。
-
-然后按下面步骤操作：
+看到二维码后：
 
 1. 打开微信
 2. 搜索小程序 `全来店云助手`
-3. 在小程序里使用扫码功能
-4. 扫描 OpenClaw 返回的绑定二维码
+3. 打开小程序后使用扫码功能
+4. 扫描 OpenClaw 返回的二维码
 5. 完成绑定
 
-注意：
-
-- 二维码有时效，过期后需要重新生成
-- 绑定成功后，才能更方便地接收提醒、同步状态或做后续关联操作
-
-如果你不确定是否已经绑定完成，可以继续问：
+如果二维码过期，就再发一次：
 
 ```text
-请帮我确认云助手是否已经绑定成功
+请重新生成云助手绑定二维码。
 ```
 
 ---
 
 ## 三、启用报表助手
 
-这一步是推荐做法。
-
-它的作用很简单：给报表查询单独开一个专用助手，不和你平时闲聊混在同一个会话里。这样通常会更稳，也更不容易越用越慢。
-
-你可以直接把下面这段话发给 OpenClaw：
+把这段话直接发给 OpenClaw：
 
 ```text
-请使用 setup-report-agent 技能，直接帮我创建 report 报表专用 agent，并重启服务。
-不要只介绍功能，不要给我选项。
+请严格按下面步骤启用报表助手，不要只介绍功能，不要给我选项：
+1. 先确认 ~/.openclaw/skills/setup-report-agent/scripts/setup_report_agent.py 是否存在
+2. 然后直接执行：
+python3 ~/.openclaw/skills/setup-report-agent/scripts/setup_report_agent.py
+3. 如果脚本执行成功，再执行：
+openclaw gateway restart
 完成后请明确告诉我：
 1. report 是否已经写入 openclaw.json
 2. ~/.openclaw/workspace-report 是否已经创建
 3. AGENTS.md、SOUL.md、TOOLS.md 是否已经写入
+4. 我现在是否可以开始使用报表助手
+如果失败，请直接告诉我失败原因。
 ```
 
-正常情况下，OpenClaw 会自动完成这些事：
-
-1. 创建一个专门查报表的 `report` agent
-2. 给这个 agent 创建独立 workspace
-3. 继承你当前 OpenClaw 默认模型
-4. 重启本地服务
-
-你不需要自己懂 agent 配置，只要记住一件事：
-
-- 平时普通聊天，继续用原来的主助手
-- 查报表时，切到 `report` 这个报表助手
-
-如果你想确认是否已经启用成功，可以继续说：
+如果你想继续确认一次，再发一句：
 
 ```text
-请帮我确认 report 报表专用 agent 是否已经创建成功，并告诉我现在能不能在代理列表里看到它
+请帮我确认 report 报表专用 agent 是否已经创建成功，并告诉我下面这些检查结果：
+1. openclaw agents list 里是否已经有 report
+2. ~/.openclaw/workspace-report 是否存在
+3. ~/.openclaw/workspace-report/AGENTS.md 是否存在
+4. ~/.openclaw/workspace-report/SOUL.md 是否存在
+5. ~/.openclaw/workspace-report/TOOLS.md 是否存在
 ```
 
 ---
 
 ## 四、开始使用
 
-绑定完成后，就可以直接查报表数据了。
-
-建议先从这些最常用的问题开始：
+启用完成后，就可以直接问这些问题：
 
 ```text
 查询今天营业额
@@ -128,25 +105,18 @@ openclaw gateway restart
 查询支付分组
 ```
 
-常见可查询内容包括：
-
-- 营业额、实收、优惠、订单数、客流、退款
-- 商品销售排行、商品分类销售排行
-- 会员总数、新增会员数
-- 支付分组 / 支付科目
-- 业务类型分析，例如堂食、外卖、退款
-
-为了让结果更准确，提问时尽量把时间说清楚。例如：
+提问时，尽量把时间说清楚，例如：
 
 ```text
 查询今天营业额
 查询上周商品分类销售排行
 查询上月新增会员数
 按业务类型看一下今天的数据
+查询这个月的门店榜单
 ```
 
-如果你想让 OpenClaw 帮你判断技能现在是否能正常工作，也可以直接说：
+如果你想确认现在整套能力是否可用，可以直接发：
 
 ```text
-请帮我测试一下全来店报表数据技能是否可以正常使用
+请帮我测试全来店报表助手现在是否可以正常使用，并告诉我哪一步还有问题。
 ```
