@@ -2,7 +2,10 @@ import argparse
 import base64
 import json
 import os
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL 1.1.1+")
 
 import requests
 
@@ -16,6 +19,7 @@ METHOD_FIELD = "method"
 DEFAULT_TIMEOUT = 10
 DEFAULT_STATE_DIR = "~/.openclaw"
 DEFAULT_SAAS_API_URL = "https://test-shop-kaci.shouqianba.com"
+TOP_LIMIT = 10
 
 
 def normalize_api_path(api_path):
@@ -57,6 +61,164 @@ def extract_business_result(response_json):
     if isinstance(response_json, dict) and response_json.get("success") and "data" in response_json:
         return response_json["data"]
     return response_json
+
+
+def to_number(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+        try:
+            if "." in raw:
+                return float(raw)
+            return int(raw)
+        except ValueError:
+            return None
+    return None
+
+
+def sort_desc(items, key):
+    return sorted(items, key=lambda item: to_number(item.get(key)) or 0, reverse=True)
+
+
+def pick_fields(payload, fields):
+    return {field: payload[field] for field in fields if field in payload and payload[field] is not None}
+
+
+def compact_business_metrics(result, payload):
+    if not isinstance(result, dict):
+        return result
+
+    summary = pick_fields(
+        result,
+        [
+            "success",
+            "code",
+            "message",
+            "updateTime",
+            "orderAmount",
+            "actualReceiptAmount",
+            "discountAmount",
+            "refundAmount",
+            "refundActualAmount",
+            "saleOrderNum",
+            "customerNum",
+            "traffic",
+            "discountRate",
+            "disFrontOrderAverage",
+            "disAfterOrderAverage",
+            "disBeforePersonAvg",
+            "disAfterPersonAvg",
+        ],
+    )
+    request_summary = pick_fields(payload or {}, ["flag", "stime", "etime", "period", "viewType"])
+    if request_summary:
+        summary["request"] = request_summary
+    return summary
+
+
+def compact_goods_summary(result, payload):
+    categories = result if isinstance(result, list) else None
+    if categories is None and isinstance(result, dict):
+        for key in ("list", "rows", "data", "result"):
+            if isinstance(result.get(key), list):
+                categories = result[key]
+                break
+    if not isinstance(categories, list):
+        return result
+
+    normalized_categories = []
+    goods_rows = []
+    for category in categories:
+        if not isinstance(category, dict):
+            continue
+        category_name = category.get("offlineCategoryName") or "未命名分类"
+        normalized_categories.append(
+            {
+                "offlineCategoryName": category_name,
+                "actualReceiptAmount": category.get("actualReceiptAmount"),
+                "orderAmount": category.get("orderAmount"),
+                "saleGoodsNum": category.get("saleGoodsNum"),
+            }
+        )
+        for goods in category.get("goodsPosCateSaleSummaryVos") or []:
+            if not isinstance(goods, dict):
+                continue
+            goods_rows.append(
+                {
+                    "goodsName": goods.get("goodsName") or "未命名商品",
+                    "categoryName": category_name,
+                    "actualReceiptAmount": goods.get("actualReceiptAmount"),
+                    "orderAmount": goods.get("orderAmount"),
+                    "saleGoodsNum": goods.get("saleGoodsNum"),
+                }
+            )
+
+    summary = {
+        "request": pick_fields(payload or {}, ["viewType", "dateType", "startDate", "endDate", "goodsFlag"]),
+        "categoryCount": len(normalized_categories),
+        "topCategoriesByReceipt": sort_desc(normalized_categories, "actualReceiptAmount")[:TOP_LIMIT],
+        "topGoodsByReceipt": sort_desc(goods_rows, "actualReceiptAmount")[:TOP_LIMIT],
+        "topGoodsBySales": sort_desc(goods_rows, "saleGoodsNum")[:TOP_LIMIT],
+    }
+    return summary
+
+
+def compact_member_period_summary(result, payload):
+    if not isinstance(result, dict):
+        return result
+
+    return {
+        "request": pick_fields(payload or {}, ["flag", "stime", "etime", "period", "viewType"]),
+        "current": pick_fields(
+            result,
+            [
+                "customerCount",
+                "memberCount",
+                "consumeMemberCount",
+                "rechargeMemberCount",
+                "orderAmount",
+                "orderNum",
+                "totalRechargeAmount",
+                "totalConsumeBalanceAmount",
+                "totalSedimentaryAmount",
+            ],
+        ),
+        "previous": {
+            "customerCount": result.get("upCustomerCount"),
+            "memberCount": result.get("upMemberCount"),
+            "consumeMemberCount": result.get("upConsumeMemberCount"),
+            "rechargeMemberCount": result.get("upRechargeMemberCount"),
+            "orderAmount": result.get("upOrderAmount"),
+            "orderNum": result.get("upOrderNum"),
+        },
+        "rates": pick_fields(
+            result,
+            [
+                "chainCustomerRate",
+                "chainMemberRate",
+                "chainConsumeCountRate",
+                "chainRechargeAmountRate",
+                "chainTotalConsumeBalanceAmountRate",
+                "chainTotalSedimentaryAmountRate",
+            ],
+        ),
+    }
+
+
+def compact_result(api_path, payload, result):
+    normalized_path = normalize_api_path(api_path)
+    if normalized_path == "/report/getYzsBusinessMetrics":
+        return compact_business_metrics(result, payload)
+    if normalized_path == "/report/goodsPosCateSaleSummary":
+        return compact_goods_summary(result, payload)
+    if normalized_path == "/report/scrm/member/customerPeriodSummary":
+        return compact_member_period_summary(result, payload)
+    return result
 
 
 def get_state_dir():
@@ -187,6 +349,7 @@ def main():
         print(response.text)
         return
 
+    result = compact_result(args.path, payload, result)
     print(json.dumps(result, ensure_ascii=False))
 
 

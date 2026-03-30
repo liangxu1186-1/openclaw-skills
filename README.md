@@ -1,9 +1,10 @@
 # OpenClaw Skills
 
-这个仓库用于半正式分发两个 OpenClaw skill，适合通过 GitHub 仓库或 Release zip 安装：
+这个仓库用于半正式分发多个 OpenClaw skill，适合通过 GitHub 仓库安装：
 
 - `generate_binding_qr`
 - `report-skill`
+- `setup-report-agent`
 
 这条分发方式不依赖 ClawHub，用户手动复制到本机 skill 目录即可使用。
 
@@ -16,6 +17,7 @@ git clone https://github.com/<your-org>/openclaw-skills.git
 mkdir -p ~/.openclaw/skills
 cp -R openclaw-skills/generate_binding_qr ~/.openclaw/skills/
 cp -R openclaw-skills/report-skill ~/.openclaw/skills/
+cp -R openclaw-skills/setup-report-agent ~/.openclaw/skills/
 openclaw gateway restart
 openclaw skills list
 ```
@@ -52,6 +54,23 @@ export SAAS_API_URL="https://your-saas-host.example.com"
 
 skill 会自动拼接 `/report/openclaw/bridge`，不需要手动补这个前缀。
 
+### `setup-report-agent`
+
+为普通用户创建一个独立的 `report` agent，用于把报表查询和日常聊天拆开。
+
+特点：
+
+- 不写死模型，默认继承用户当前 OpenClaw 的默认模型
+- 自动创建 `~/.openclaw/workspace-report`
+- 自动写入轻量版 `AGENTS.md`
+- 自动重启 `openclaw gateway`
+
+典型用法：
+
+```text
+请帮我启用报表专用助手
+```
+
 ## 更新方式
 
 拉取最新代码后，覆盖本机 skill 目录并重启 gateway：
@@ -60,5 +79,6 @@ skill 会自动拼接 `/report/openclaw/bridge`，不需要手动补这个前缀
 git pull
 cp -R generate_binding_qr ~/.openclaw/skills/
 cp -R report-skill ~/.openclaw/skills/
+cp -R setup-report-agent ~/.openclaw/skills/
 openclaw gateway restart
 ```
