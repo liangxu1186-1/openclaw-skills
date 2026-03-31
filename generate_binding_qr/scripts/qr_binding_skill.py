@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional, Union
 
 QR_DURATION_SECONDS = 300
-QR_DURATION_LABEL = "5 分钟"
+QR_DURATION_LABEL = "5分钟"
 
 
 def ensure_python_dependencies() -> None:
@@ -55,6 +55,9 @@ def ensure_python_dependencies() -> None:
 ensure_python_dependencies()
 qrcode = importlib.import_module("qrcode")
 PyPNGImage = importlib.import_module("qrcode.image.pure").PyPNGImage
+QR_ERROR_CORRECTION = qrcode.constants.ERROR_CORRECT_Q
+QR_BOX_SIZE = 2
+QR_BORDER = 4
 
 
 def resolve_public_key_from_paired_devices() -> Optional[str]:
@@ -144,11 +147,11 @@ def generate_binding_qr_png(public_key: Optional[str] = None) -> Union[bytes, st
         payload = build_binding_payload(pk)
         qr = qrcode.QRCode(
             version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_H,
-            box_size=4,
-            # Keep the standard QR quiet zone so the image does not look clipped
-            # in the UI and remains easier to scan.
-            border=4,
+            # Keep the inline PNG shorter so the chat renderer is less likely
+            # to break the base64 payload, while still retaining a standard quiet zone.
+            error_correction=QR_ERROR_CORRECTION,
+            box_size=QR_BOX_SIZE,
+            border=QR_BORDER,
         )
         qr.add_data(payload)
         qr.make(fit=True)
@@ -175,12 +178,11 @@ def generate_binding_qr(public_key: Optional[str] = None) -> str:
 
 
 def render_markdown_result(media_path: str) -> str:
-    return f"""### 绑定您的云助手
-生成完成后，请使用微信搜索 **“云助手”** 小程序，或直接打开小程序后点击扫码功能扫码绑定：
+    return f"请在{QR_DURATION_LABEL}内使用云助手小程序扫码绑定\n![扫码绑定]({media_path})"
 
-![扫码绑定]({media_path})
 
-安全提示：此二维码包含当前实例唯一身份标识，请勿发送给陌生人。二维码有效期为 {QR_DURATION_LABEL}。"""
+def write_output(content: str) -> None:
+    sys.stdout.write(content)
 
 
 def run_healthcheck(trace: bool):
@@ -218,9 +220,9 @@ def run_warmup(trace: bool):
         payload = build_binding_payload("WARMUP-KEY")
         qr = qrcode.QRCode(
             version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_H,
-            box_size=2,
-            border=2,
+            error_correction=QR_ERROR_CORRECTION,
+            box_size=QR_BOX_SIZE,
+            border=QR_BORDER,
         )
         qr.add_data(payload)
         qr.make(fit=True)
@@ -264,24 +266,24 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.healthcheck:
-        print(json.dumps({k: v for k, v in run_healthcheck(args.trace).items() if v is not None}, ensure_ascii=False))
+        write_output(json.dumps({k: v for k, v in run_healthcheck(args.trace).items() if v is not None}, ensure_ascii=False))
         return
 
     if args.warmup:
-        print(json.dumps({k: v for k, v in run_warmup(args.trace).items() if v is not None}, ensure_ascii=False))
+        write_output(json.dumps({k: v for k, v in run_warmup(args.trace).items() if v is not None}, ensure_ascii=False))
         return
 
     if args.format == "markdown":
         png_bytes = generate_binding_qr_png(args.public_key)
         if isinstance(png_bytes, str):
-            print(png_bytes)
+            write_output(png_bytes)
             return
 
         image_data_url = f"data:image/png;base64,{base64.b64encode(png_bytes).decode('utf-8')}"
-        print(render_markdown_result(image_data_url))
+        write_output(render_markdown_result(image_data_url))
         return
 
-    print(generate_binding_qr(args.public_key))
+    write_output(generate_binding_qr(args.public_key))
 
 
 if __name__ == "__main__":
