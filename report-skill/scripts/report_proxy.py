@@ -2,14 +2,15 @@ import argparse
 import base64
 import json
 import os
+import sys
 import warnings
+from datetime import datetime
 from pathlib import Path
 
 warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL 1.1.1+")
 
 import requests
-from compactors import compact_result as compact_result_impl
-from route_catalog import get_supported_route, validate_supported_path
+from route_catalog import get_payload_contract, validate_supported_path
 
 BRIDGE_PROXY_PATH = "/report/openclaw/bridge"
 PUBLIC_KEY_HEADER = "X-OpenClaw-PublicKey"
@@ -21,6 +22,10 @@ METHOD_FIELD = "method"
 DEFAULT_TIMEOUT = 10
 DEFAULT_STATE_DIR = "~/.openclaw"
 DEFAULT_SAAS_API_URL = "https://test-shop-kaci.shouqianba.com"
+DEFAULT_FLAG = 2
+MAX_RANGE_DAYS = 183
+
+
 def normalize_api_path(api_path):
     if not api_path:
         raise ValueError("path 不能为空")
@@ -46,15 +51,111 @@ def serialize_json_value(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def build_error_result(code, message, *, error_type="runtime_error", api_path=None, detail=None):
+    result = {
+        "success": False,
+        "code": code,
+        "errorType": error_type,
+        "message": message,
+    }
+    if api_path:
+        result["path"] = api_path
+    if detail is not None:
+        result["detail"] = detail
+    return result
+
+
+def is_missing_value(value):
+    return value in (None, "", [], {})
+
+
+def validate_payload_contract(api_path, payload):
+    if payload is None or not isinstance(payload, dict):
+        return
+
+    contract = get_payload_contract(api_path, normalize_path=normalize_api_path)
+    if not contract:
+        return
+
+    forbidden_fields = sorted(
+        field for field in contract.get("forbidden_fields", ()) if not is_missing_value(payload.get(field))
+    )
+    missing_fields = sorted(
+        field for field in contract.get("required_fields", ()) if is_missing_value(payload.get(field))
+    )
+    if not forbidden_fields and not missing_fields:
+        return
+
+    detail = {
+        "family": contract.get("family", ""),
+        "requiredFields": list(contract.get("required_fields", ())),
+    }
+    if forbidden_fields:
+        detail["forbiddenFields"] = forbidden_fields
+    if missing_fields:
+        detail["missingFields"] = missing_fields
+
+    hint = contract.get("hint", "").strip()
+    problems = []
+    if forbidden_fields:
+        problems.append(f"检测到错误参数: {', '.join(forbidden_fields)}")
+    if missing_fields:
+        problems.append(f"缺少必填参数: {', '.join(missing_fields)}")
+    if hint:
+        problems.append(hint)
+
+    raise ValueError(
+        json.dumps(
+            build_error_result(
+                "PAYLOAD_VALIDATION_ERROR",
+                "；".join(problems),
+                error_type="payload_validation",
+                api_path=api_path,
+                detail=detail,
+            ),
+            ensure_ascii=False,
+        )
+    )
+
+
+def validate_date_range(api_path, payload):
+    if payload is None or not isinstance(payload, dict):
+        return
+
+    start_time = payload.get("startTime")
+    end_time = payload.get("endTime")
+    if is_missing_value(start_time) or is_missing_value(end_time):
+        return
+
+    start_date = datetime.strptime(str(start_time), "%Y%m%d").date()
+    end_date = datetime.strptime(str(end_time), "%Y%m%d").date()
+    if (end_date - start_date).days <= MAX_RANGE_DAYS:
+        return
+
+    raise ValueError(
+        json.dumps(
+            build_error_result(
+                "PAYLOAD_VALIDATION_ERROR",
+                f"查询范围不能超过{MAX_RANGE_DAYS}天",
+                error_type="payload_validation",
+                api_path=api_path,
+                detail={"maxRangeDays": MAX_RANGE_DAYS},
+            ),
+            ensure_ascii=False,
+        )
+    )
+
+
 def normalize_payload(api_path, payload):
     if not isinstance(payload, dict):
         return payload
 
     normalized_path = validate_supported_path(api_path, normalize_path=normalize_api_path)
     normalized_payload = dict(payload)
-    _, route_config = get_supported_route(normalized_path, normalize_path=normalize_api_path)
-    forced_payload = (route_config or {}).get("forced_payload", {})
-    normalized_payload.update(forced_payload)
+    if is_missing_value(normalized_payload.get("flag")):
+        normalized_payload["flag"] = DEFAULT_FLAG
+    validate_payload_contract(normalized_path, normalized_payload)
+    validate_date_range(normalized_path, normalized_payload)
     return normalized_payload
 
 
@@ -72,10 +173,6 @@ def extract_business_result(response_json):
     if isinstance(response_json, dict) and response_json.get("success") and "data" in response_json:
         return response_json["data"]
     return response_json
-
-
-def compact_result(api_path, payload, result):
-    return compact_result_impl(api_path, payload, result, normalize_api_path)
 
 
 def get_state_dir():
@@ -155,9 +252,36 @@ def resolve_public_key():
     raise RuntimeError("无法自动获取 OpenClaw 公钥，请检查 ~/.openclaw 状态目录或显式配置 OPENCLAW_PUBLIC_KEY")
 
 
+def resolve_base_url():
+    raw_base_url = os.getenv("SAAS_API_URL", "")
+    base_url = (raw_base_url or DEFAULT_SAAS_API_URL).strip().rstrip("/")
+    if base_url:
+        return base_url
+    raise RuntimeError("SAAS_API_URL 未配置，且默认 SaaS API 地址为空")
+
+
+def print_structured_error(exc, api_path=None):
+    raw_message = str(exc).strip()
+    if raw_message.startswith("{") and raw_message.endswith("}"):
+        print(raw_message)
+        return 1
+
+    print(
+        json.dumps(
+            build_error_result(
+                "REPORT_PROXY_ERROR",
+                raw_message or exc.__class__.__name__,
+                api_path=api_path,
+            ),
+            ensure_ascii=False,
+        )
+    )
+    return 1
+
+
 def main():
-    parser = argparse.ArgumentParser(description="通过 OpenClaw bridge 调用 SaaS 报表接口")
-    parser.add_argument("path", help="原始业务路径，例如 /report/getYzsBusinessMetrics")
+    parser = argparse.ArgumentParser(description="通过 OpenClaw bridge 调用 agent 报表接口")
+    parser.add_argument("path", help="业务路径，例如 /agent/order/overview")
     parser.add_argument("payload", nargs="?", default="", help="请求体 JSON 字符串")
     parser.add_argument(
         "--method",
@@ -168,7 +292,7 @@ def main():
     parser.add_argument(
         "--query",
         default="",
-        help="查询参数 JSON 字符串，例如 '{\"traceId\":\"demo\"}'",
+        help="查询参数 JSON 字符串",
     )
     parser.add_argument(
         "--timeout",
@@ -178,39 +302,39 @@ def main():
     )
     args = parser.parse_args()
 
-    base_url = os.getenv("SAAS_API_URL", DEFAULT_SAAS_API_URL).rstrip("/")
-    public_key = resolve_public_key()
-
-    if not base_url:
-        raise RuntimeError("SAAS_API_URL 未配置，且默认 SaaS API 地址为空")
-
-    validate_supported_path(args.path, normalize_path=normalize_api_path)
-    payload = parse_json_arg(args.payload, "payload")
-    query = parse_json_arg(args.query, "query")
-    url = build_bridge_url(base_url)
-    normalized_payload = normalize_payload(args.path, payload)
-    bridge_payload = build_bridge_payload(args.method, normalized_payload, query, args.path, public_key)
-
-    response = requests.post(
-        url=url,
-        headers={
-            "Content-Type": "application/json",
-            PUBLIC_KEY_HEADER: public_key,
-        },
-        timeout=args.timeout,
-        json=bridge_payload,
-    )
-    response.raise_for_status()
-
     try:
-        result = extract_business_result(response.json())
-    except ValueError:
-        print(response.text)
-        return
+        canonical_path = validate_supported_path(args.path, normalize_path=normalize_api_path)
+        payload = parse_json_arg(args.payload, "payload")
+        query = parse_json_arg(args.query, "query")
+        normalized_payload = normalize_payload(canonical_path, payload)
 
-    result = compact_result(args.path, normalized_payload, result)
-    print(json.dumps(result, ensure_ascii=False))
+        base_url = resolve_base_url()
+        public_key = resolve_public_key()
+        url = build_bridge_url(base_url)
+        bridge_payload = build_bridge_payload(args.method, normalized_payload, query, canonical_path, public_key)
+
+        response = requests.post(
+            url=url,
+            headers={
+                "Content-Type": "application/json",
+                PUBLIC_KEY_HEADER: public_key,
+            },
+            timeout=args.timeout,
+            json=bridge_payload,
+        )
+        response.raise_for_status()
+
+        try:
+            result = extract_business_result(response.json())
+        except ValueError:
+            print(response.text)
+            return 0
+
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    except (ValueError, RuntimeError, requests.RequestException) as exc:
+        return print_structured_error(exc, api_path=args.path)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

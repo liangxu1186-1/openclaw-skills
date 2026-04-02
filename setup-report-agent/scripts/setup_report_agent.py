@@ -32,6 +32,8 @@ LIGHTWEIGHT_AGENTS_MD = """# AGENTS.md - 报表助手工作区
 
 - 回复以数据为先，简洁直接。
 - 优先保持短会话，不要把报表分析拖成长聊天。
+- 如果脚本已返回 `headline`、`briefCn`、`riskHints`，直接基于这些字段回答。
+- 没有用户明确要求时，不要重新拼大表，不要把工具结果再手工改写成长分析。
 - 如果工具输出很大，只提取回答问题所需字段。
 - 如果用户问的是普通闲聊、写作或其它非报表问题，提醒切回主助手。
 """
@@ -79,12 +81,14 @@ TOOLS_MD = """# TOOLS.md - 报表助手工具说明
 
 1. 只要用户是在查经营数据、营业额、商品排行、会员报表、支付分组、业务类型，就优先走报表技能。
 2. 默认不要去读旧目录，不要先 `find`、`ls`、`memory_search` 探测脚本位置。
-3. 如果用户问的是商品分类销售排行，要优先想到：
+3. 如果脚本输出里已经有 `headline`、`briefCn`、`riskHints`，优先直接使用这些字段回复。
+4. 除非用户明确要明细表，不要重新拼大表或重复解释脚本已经总结过的数字。
+5. 如果用户问的是商品分类销售排行，要优先想到：
    - `dateType`
    - `startDate`
    - `endDate`
    - `viewType`
-4. 如果用户问的是营业指标，要优先想到：
+6. 如果用户问的是营业指标，要优先想到：
    - `flag`
    - `stime`
    - `etime`
@@ -101,6 +105,14 @@ python3 ~/.openclaw/skills/report-skill/scripts/report_proxy.py '/report/getYzsB
 python3 ~/.openclaw/skills/report-skill/scripts/report_proxy.py '/report/goodsPosCateSaleSummary' '{"viewType":1,"dateType":2,"startDate":20260330,"endDate":20260330}'
 ```
 """
+
+
+STALE_WORKSPACE_FILES = (
+    "IDENTITY.md",
+    "USER.md",
+    "BOOTSTRAP.md",
+    "HEARTBEAT.md",
+)
 
 
 def load_json(path: Path):
@@ -176,6 +188,8 @@ def ensure_workspace(workspace: Path):
         "AGENTS.md": False,
         "SOUL.md": False,
         "TOOLS.md": False,
+        "updated": [],
+        "removed": [],
     }
 
     files = {
@@ -186,9 +200,19 @@ def ensure_workspace(workspace: Path):
 
     for name, content in files.items():
         path = workspace / name
-        if not path.exists():
+        previous = path.read_text(encoding="utf-8") if path.exists() else None
+        if previous != content:
             path.write_text(content, encoding="utf-8")
-            created[name] = True
+            if previous is None:
+                created[name] = True
+            else:
+                created["updated"].append(name)
+
+    for name in STALE_WORKSPACE_FILES:
+        path = workspace / name
+        if path.exists():
+            path.unlink()
+            created["removed"].append(name)
 
     return created
 
