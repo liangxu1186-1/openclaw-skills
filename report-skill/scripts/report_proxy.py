@@ -21,7 +21,7 @@ QUERY_FIELD = "query"
 METHOD_FIELD = "method"
 DEFAULT_TIMEOUT = 10
 DEFAULT_STATE_DIR = "~/.openclaw"
-DEFAULT_SAAS_API_URL = "https://test-shop-kaci.shouqianba.com"
+DEFAULT_SAAS_API_URL = "https://shop-kaci.shouqianba.com"
 DEFAULT_FLAG = 2
 MAX_RANGE_DAYS = 183
 
