@@ -39,5 +39,5 @@
 ## 使用规则
 
 - 订单域所有接口统一只传 `startTime`、`endTime`、`flag`
-- 订单域查询时间范围不能超过 `183` 天
+- 订单域查询时间范围不能超过 `90` 天
 - 不再向 skill 暴露 legacy `stime/etime/dateType/startDate/endDate/metricsType`

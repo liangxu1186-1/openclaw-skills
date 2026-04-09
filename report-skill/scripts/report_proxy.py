@@ -1,5 +1,4 @@
 import argparse
-import base64
 import json
 import os
 import sys
@@ -187,10 +186,6 @@ def load_json_file(path):
         return json.load(handle)
 
 
-def base64url_no_padding(raw_bytes):
-    return base64.urlsafe_b64encode(raw_bytes).decode("ascii").rstrip("=")
-
-
 def public_key_from_paired(state_dir):
     paired_path = state_dir / "devices" / "paired.json"
     payload = load_json_file(paired_path)
@@ -206,35 +201,6 @@ def public_key_from_paired(state_dir):
     return ""
 
 
-def public_key_from_identity(state_dir):
-    identity_path = state_dir / "identity" / "device.json"
-    payload = load_json_file(identity_path)
-    if not isinstance(payload, dict):
-        return ""
-
-    public_key_pem = str(payload.get("publicKeyPem", "")).strip()
-    if not public_key_pem:
-        return ""
-
-    pem_body = "".join(
-        line.strip()
-        for line in public_key_pem.splitlines()
-        if "BEGIN PUBLIC KEY" not in line and "END PUBLIC KEY" not in line
-    )
-    if not pem_body:
-        return ""
-
-    try:
-        der = base64.b64decode(pem_body)
-    except Exception as exc:
-        raise RuntimeError("OpenClaw publicKeyPem 解析失败") from exc
-
-    if len(der) < 32:
-        raise RuntimeError("OpenClaw publicKeyPem 内容异常")
-
-    return base64url_no_padding(der[-32:])
-
-
 def resolve_public_key():
     public_key = os.getenv("OPENCLAW_PUBLIC_KEY", "").strip()
     if public_key:
@@ -245,11 +211,7 @@ def resolve_public_key():
     if public_key:
         return public_key
 
-    public_key = public_key_from_identity(state_dir)
-    if public_key:
-        return public_key
-
-    raise RuntimeError("无法自动获取 OpenClaw 公钥，请检查 ~/.openclaw 状态目录或显式配置 OPENCLAW_PUBLIC_KEY")
+    raise RuntimeError("无法自动获取 OpenClaw 公钥，请配置 OPENCLAW_PUBLIC_KEY 或检查 ~/.openclaw/devices/paired.json")
 
 
 def resolve_base_url():

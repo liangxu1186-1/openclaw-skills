@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -15,11 +17,63 @@ from report_proxy import (
     normalize_payload,
     print_structured_error,
     resolve_base_url,
+    resolve_public_key,
     validate_supported_path,
 )
 
 
 class ReportAgentProxyTest(unittest.TestCase):
+
+    def write_json_file(self, root, relative_path, payload):
+        target = Path(root) / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    def test_resolve_public_key_prefers_env_over_paired_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.write_json_file(
+                tmpdir,
+                "devices/paired.json",
+                {"device-1": {"clientId": "cli", "publicKey": "paired-public-key"}},
+            )
+            with patch.dict(
+                os.environ,
+                {"OPENCLAW_PUBLIC_KEY": "env-public-key", "OPENCLAW_STATE_DIR": tmpdir},
+                clear=False,
+            ):
+                self.assertEqual("env-public-key", resolve_public_key())
+
+    def test_resolve_public_key_falls_back_to_paired_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.write_json_file(
+                tmpdir,
+                "devices/paired.json",
+                {"device-1": {"clientId": "cli", "publicKey": "paired-public-key"}},
+            )
+            with patch.dict(
+                os.environ,
+                {"OPENCLAW_PUBLIC_KEY": "", "OPENCLAW_STATE_DIR": tmpdir},
+                clear=False,
+            ):
+                self.assertEqual("paired-public-key", resolve_public_key())
+
+    def test_resolve_public_key_does_not_use_identity_device_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.write_json_file(
+                tmpdir,
+                "identity/device.json",
+                {"publicKeyPem": "-----BEGIN PUBLIC KEY-----\nZmFrZQ==\n-----END PUBLIC KEY-----"},
+            )
+            with patch.dict(
+                os.environ,
+                {"OPENCLAW_PUBLIC_KEY": "", "OPENCLAW_STATE_DIR": tmpdir},
+                clear=False,
+            ):
+                with self.assertRaises(RuntimeError) as context:
+                    resolve_public_key()
+
+            self.assertIn("OPENCLAW_PUBLIC_KEY", str(context.exception))
+            self.assertIn("paired.json", str(context.exception))
 
     def test_resolve_base_url_falls_back_to_default_test_host(self):
         with patch.dict("os.environ", {"SAAS_API_URL": ""}, clear=False):
@@ -125,7 +179,7 @@ class ReportAgentProxyTest(unittest.TestCase):
         error = json.loads(str(context.exception))
         self.assertEqual(["endTime", "startTime"], error["detail"]["missingFields"])
 
-    def test_agent_route_rejects_date_range_longer_than_183_days(self):
+    def test_agent_route_rejects_date_range_longer_than_90_days(self):
         with self.assertRaises(ValueError) as context:
             normalize_payload(
                 "/agent/order/overview",
@@ -135,7 +189,7 @@ class ReportAgentProxyTest(unittest.TestCase):
         error = json.loads(str(context.exception))
         self.assertEqual("PAYLOAD_VALIDATION_ERROR", error["code"])
         self.assertEqual("/agent/order/overview", error["path"])
-        self.assertEqual(183, error["detail"]["maxRangeDays"])
+        self.assertEqual(90, error["detail"]["maxRangeDays"])
 
     def test_build_bridge_payload_accepts_agent_route(self):
         payload = normalize_payload(

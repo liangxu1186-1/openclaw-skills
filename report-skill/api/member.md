@@ -15,7 +15,7 @@
 ## 使用规则
 
 - 会员域接口统一只传 `startTime`、`endTime`、`flag`
-- 会员域查询时间范围不能超过 `183` 天
+- 会员域查询时间范围不能超过 `90` 天
 - `member/preference` 保持一个接口返回三块数据，不拆成三个 tool call
 - `member/overview` 返回会员总量和区间新增/开卡/充值/消费会员数
 - “会员消费门店排行”统一通过 `member/preference` 的 `favoriteStores` 回答

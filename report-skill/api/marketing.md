@@ -15,6 +15,6 @@
 ## 使用规则
 
 - 营销域所有接口统一只传 `startTime`、`endTime`、`flag`
-- 营销域查询时间范围不能超过 `183` 天
+- 营销域查询时间范围不能超过 `90` 天
 - `promotion-summary` 只返回外层汇总字段，不返回 `dayList`
 - `activity-summary` 直接返回 Java facade 原始业务 JSON

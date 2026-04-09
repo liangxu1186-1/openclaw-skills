@@ -31,7 +31,7 @@
 ## 使用规则
 
 - 商品域所有接口统一只传 `startTime`、`endTime`、`flag`
-- 商品域查询时间范围不能超过 `183` 天
+- 商品域查询时间范围不能超过 `90` 天
 - 商品类接口的具体排行、分组、统计维度由后端 facade 内部转换，skill 不再直接理解 legacy 参数
 - `goods/income-subject` 返回固定 `items` 列表，不再暴露 legacy 动态表头和 `map`
 - `goods/income-subject` 每项当前只关心 `incomeSubjectId`、`incomeSubjectName`、`orderAmount`、`actualReceiptAmount`、`discountAmount`

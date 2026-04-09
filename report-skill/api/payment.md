@@ -17,6 +17,6 @@
 ## 使用规则
 
 - 支付域接口统一只传 `startTime`、`endTime`、`flag`
-- 支付域查询时间范围不能超过 `183` 天
+- 支付域查询时间范围不能超过 `90` 天
 - `payment/compose` 返回原始嵌套结构，先看顶层汇总，再看 `groupVoList` 和 `subjectVoList`
 - `discount-overview` 当前会明确返回 `NOT_IMPLEMENTED`
