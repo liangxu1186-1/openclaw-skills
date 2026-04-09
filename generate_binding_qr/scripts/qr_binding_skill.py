@@ -16,8 +16,12 @@ warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL 1.1.
 QR_DURATION_SECONDS = 300
 QR_DURATION_LABEL = "5分钟"
 DEFAULT_TIMEOUT = 10
+DEFAULT_STATE_DIR = "~/.openclaw"
+DEFAULT_AGENT_IDENTITY_PATH = Path("/home/gem/workspace/agent/identity/device.json")
 DEFAULT_SAAS_API_URL = "https://test-shop-kaci.shouqianba.com"
 QR_IMAGE_PATH = "/report/openclaw/binding/qr-image"
+PRIMARY_IDENTITY_ENV = "OPENCLAW_IDENTITY"
+IDENTITY_REQUEST_FIELD = "publicKey"
 
 
 def ensure_python_dependencies() -> None:
@@ -67,70 +71,49 @@ def summarize_response_text(text: Optional[str]) -> str:
     return compact[:200] + "..."
 
 
-def resolve_public_key_from_paired_devices() -> Optional[str]:
-    paired_path = Path.home() / ".openclaw" / "devices" / "paired.json"
-    if not paired_path.exists():
+def get_state_dir() -> Path:
+    return Path(os.getenv("OPENCLAW_STATE_DIR", DEFAULT_STATE_DIR)).expanduser()
+
+
+def load_json_file(path: Path) -> Optional[object]:
+    if not path.exists():
         return None
 
     try:
-        payload = json.loads(paired_path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return None
 
+
+def normalize_identity_value(value: object) -> Optional[str]:
+    if value is None or isinstance(value, (dict, list, tuple, set, bool)):
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def resolve_identity_value_from_device_file(identity_path: Path) -> Optional[str]:
+    payload = load_json_file(identity_path)
     if not isinstance(payload, dict):
         return None
 
-    entries = [value for value in payload.values() if isinstance(value, dict)]
-    preferred_entries = []
-    fallback_entries = []
-
-    for entry in entries:
-        public_key = entry.get("publicKey")
-        if not isinstance(public_key, str) or not public_key.strip():
-            continue
-
-        client_id = entry.get("clientId")
-        platform = entry.get("platform")
-        if client_id == "cli" and platform == "darwin":
-            preferred_entries.append(entry)
-        else:
-            fallback_entries.append(entry)
-
-    for entry in preferred_entries + fallback_entries:
-        public_key = entry.get("publicKey")
-        if isinstance(public_key, str) and public_key.strip():
-            return public_key.strip()
-
-    return None
+    return normalize_identity_value(payload.get("deviceId"))
 
 
-def resolve_public_key(explicit_key: Optional[str]) -> Optional[str]:
-    if explicit_key:
-        return explicit_key
+def resolve_identity_value(explicit_identity: Optional[str]) -> Optional[str]:
+    normalized_explicit_identity = normalize_identity_value(explicit_identity)
+    if normalized_explicit_identity:
+        return normalized_explicit_identity
 
-    env_key = os.getenv("OPENCLAW_PUBKEY") or os.getenv("OPENCLAW_PUBLIC_KEY")
-    if env_key:
-        return env_key
+    env_identity = normalize_identity_value(os.getenv(PRIMARY_IDENTITY_ENV))
+    if env_identity:
+        return env_identity
 
-    paired_key = resolve_public_key_from_paired_devices()
-    if paired_key:
-        return paired_key
+    identity_value = resolve_identity_value_from_device_file(get_state_dir() / "identity" / "device.json")
+    if identity_value:
+        return identity_value
 
-    skill_dir = Path(__file__).resolve().parent.parent
-    search_roots = [Path.cwd(), skill_dir]
-    candidate_relpaths = [
-        Path("keys/public.pem"),
-        Path("config/id_rsa.pub"),
-        Path(".identity/pub.key"),
-    ]
-
-    for root in search_roots:
-        for relpath in candidate_relpaths:
-            candidate = root / relpath
-            if candidate.exists():
-                return candidate.read_text(encoding="utf-8").strip()
-
-    return None
+    return resolve_identity_value_from_device_file(DEFAULT_AGENT_IDENTITY_PATH)
 
 
 def resolve_base_url() -> str:
@@ -159,16 +142,19 @@ def extract_image_url(response_json: object) -> str:
     raise RuntimeError("二维码图片接口未返回 imageUrl")
 
 
-def fetch_remote_qr_image_url(public_key: Optional[str]) -> str:
-    pk = resolve_public_key(public_key)
-    if not pk:
-        raise RuntimeError("错误：未能在系统中找到公钥，请手动提供或检查密钥配置文件。")
+def fetch_remote_qr_image_url(identity_value: Optional[str]) -> str:
+    resolved_identity = resolve_identity_value(identity_value)
+    if not resolved_identity:
+        raise RuntimeError(
+            "错误：未能在系统中找到 OpenClaw 标识，请手动提供或检查 OPENCLAW_IDENTITY、"
+            "identity/device.json，或固定路径 /home/gem/workspace/agent/identity/device.json。"
+        )
 
     endpoint = build_qr_image_url(resolve_base_url())
     try:
         response = requests.post(
             endpoint,
-            json={"publicKey": pk},
+            json={IDENTITY_REQUEST_FIELD: resolved_identity},
             timeout=DEFAULT_TIMEOUT,
         )
         response.raise_for_status()
@@ -237,8 +223,8 @@ def run_healthcheck(trace: bool):
     timings = {}
 
     t = time.perf_counter()
-    pk = resolve_public_key(None)
-    timings["publicKey"] = int((time.perf_counter() - t) * 1000)
+    identity_value = resolve_identity_value(None)
+    timings["identity"] = int((time.perf_counter() - t) * 1000)
 
     t = time.perf_counter()
     try:
@@ -252,11 +238,11 @@ def run_healthcheck(trace: bool):
     timings["baseUrl"] = int((time.perf_counter() - t) * 1000)
 
     return {
-        "ok": bool(pk) and base_url_ok,
+        "ok": bool(identity_value) and base_url_ok,
         "stage": "healthcheck",
-        "publicKeyLoaded": bool(pk),
+        "identityLoaded": bool(identity_value),
         "baseUrlLoaded": base_url_ok,
-        "qrReady": bool(pk) and base_url_ok,
+        "qrReady": bool(identity_value) and base_url_ok,
         "timings": timings if trace else None,
         "message": message,
     }
@@ -266,8 +252,8 @@ def run_warmup(trace: bool):
     timings = {}
 
     t = time.perf_counter()
-    pk = resolve_public_key(None)
-    timings["publicKey"] = int((time.perf_counter() - t) * 1000)
+    identity_value = resolve_identity_value(None)
+    timings["identity"] = int((time.perf_counter() - t) * 1000)
 
     t = time.perf_counter()
     base_url = resolve_base_url()
@@ -275,9 +261,9 @@ def run_warmup(trace: bool):
     timings["endpoint"] = int((time.perf_counter() - t) * 1000)
 
     return {
-        "ok": bool(pk) and bool(endpoint),
+        "ok": bool(identity_value) and bool(endpoint),
         "stage": "warmup",
-        "publicKeyLoaded": bool(pk),
+        "identityLoaded": bool(identity_value),
         "endpoint": endpoint,
         "timings": timings if trace else None,
     }
@@ -285,15 +271,15 @@ def run_warmup(trace: bool):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate an OpenClaw binding QR code.")
-    parser.add_argument("--public-key", help="Explicit public key content", default=None)
+    parser.add_argument("--identity", help="Explicit OpenClaw identity value", default=None)
     parser.add_argument(
         "--format",
         choices=["image-url", "markdown"],
         default="image-url",
         help="Output remote image URL or Markdown with the remote image URL.",
     )
-    parser.add_argument("--healthcheck", action="store_true", help="检查依赖与密钥可用性")
-    parser.add_argument("--warmup", action="store_true", help="执行预热，检查公钥和二维码接口地址")
+    parser.add_argument("--healthcheck", action="store_true", help="检查依赖与标识可用性")
+    parser.add_argument("--warmup", action="store_true", help="执行预热，检查标识和二维码接口地址")
     parser.add_argument("--trace", action="store_true", help="输出分段耗时信息")
     args = parser.parse_args()
 
@@ -306,12 +292,12 @@ def main() -> None:
         return
 
     if args.format == "markdown":
-        image_url = fetch_remote_qr_image_url(args.public_key)
+        image_url = fetch_remote_qr_image_url(args.identity)
         image_bytes = download_remote_qr_image_bytes(image_url)
         write_output(render_markdown_result(encode_png_bytes_as_data_uri(image_bytes)))
         return
 
-    write_output(fetch_remote_qr_image_url(args.public_key))
+    write_output(fetch_remote_qr_image_url(args.identity))
 
 
 if __name__ == "__main__":

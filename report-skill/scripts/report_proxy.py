@@ -12,17 +12,19 @@ import requests
 from route_catalog import get_payload_contract, validate_supported_path
 
 BRIDGE_PROXY_PATH = "/report/openclaw/bridge"
-PUBLIC_KEY_HEADER = "X-OpenClaw-PublicKey"
+IDENTITY_HEADER = "X-OpenClaw-PublicKey"
 TARGET_PATH_PARAM = "targetPath"
-PUBLIC_KEY_FIELD = "publicKey"
+IDENTITY_FIELD = "publicKey"
 PAYLOAD_FIELD = "payload"
 QUERY_FIELD = "query"
 METHOD_FIELD = "method"
 DEFAULT_TIMEOUT = 10
 DEFAULT_STATE_DIR = "~/.openclaw"
+DEFAULT_AGENT_IDENTITY_PATH = Path("/home/gem/workspace/agent/identity/device.json")
 DEFAULT_SAAS_API_URL = "https://shop-kaci.shouqianba.com"
 DEFAULT_FLAG = 2
 MAX_RANGE_DAYS = 90
+PRIMARY_IDENTITY_ENV = "OPENCLAW_IDENTITY"
 
 
 def normalize_api_path(api_path):
@@ -158,10 +160,10 @@ def normalize_payload(api_path, payload):
     return normalized_payload
 
 
-def build_bridge_payload(method, payload, query, api_path, public_key):
+def build_bridge_payload(method, payload, query, api_path, identity_value):
     return {
         TARGET_PATH_PARAM: validate_supported_path(api_path, normalize_path=normalize_api_path),
-        PUBLIC_KEY_FIELD: public_key,
+        IDENTITY_FIELD: identity_value,
         METHOD_FIELD: method,
         PAYLOAD_FIELD: serialize_json_value(payload),
         QUERY_FIELD: serialize_json_value(query),
@@ -186,32 +188,37 @@ def load_json_file(path):
         return json.load(handle)
 
 
-def public_key_from_paired(state_dir):
-    paired_path = state_dir / "devices" / "paired.json"
-    payload = load_json_file(paired_path)
+def normalize_identity_value(value):
+    if value is None or isinstance(value, (dict, list, tuple, set, bool)):
+        return ""
+    return str(value).strip()
+
+
+def identity_value_from_device_file(identity_path):
+    payload = load_json_file(identity_path)
     if not isinstance(payload, dict):
         return ""
-
-    for device in payload.values():
-        if not isinstance(device, dict):
-            continue
-        if device.get("clientId") == "cli" and device.get("publicKey"):
-            return str(device["publicKey"]).strip()
-
-    return ""
+    return normalize_identity_value(payload.get("deviceId"))
 
 
-def resolve_public_key():
-    public_key = os.getenv("OPENCLAW_PUBLIC_KEY", "").strip()
-    if public_key:
-        return public_key
+def resolve_identity_value():
+    identity_value = normalize_identity_value(os.getenv(PRIMARY_IDENTITY_ENV, ""))
+    if identity_value:
+        return identity_value
 
     state_dir = get_state_dir()
-    public_key = public_key_from_paired(state_dir)
-    if public_key:
-        return public_key
+    identity_value = identity_value_from_device_file(state_dir / "identity" / "device.json")
+    if identity_value:
+        return identity_value
 
-    raise RuntimeError("无法自动获取 OpenClaw 公钥，请配置 OPENCLAW_PUBLIC_KEY 或检查 ~/.openclaw/devices/paired.json")
+    identity_value = identity_value_from_device_file(DEFAULT_AGENT_IDENTITY_PATH)
+    if identity_value:
+        return identity_value
+
+    raise RuntimeError(
+        "无法自动获取 OpenClaw 标识，请配置 OPENCLAW_IDENTITY，"
+        "或检查 ~/.openclaw/identity/device.json 与 /home/gem/workspace/agent/identity/device.json"
+    )
 
 
 def resolve_base_url():
@@ -271,15 +278,15 @@ def main():
         normalized_payload = normalize_payload(canonical_path, payload)
 
         base_url = resolve_base_url()
-        public_key = resolve_public_key()
+        identity_value = resolve_identity_value()
         url = build_bridge_url(base_url)
-        bridge_payload = build_bridge_payload(args.method, normalized_payload, query, canonical_path, public_key)
+        bridge_payload = build_bridge_payload(args.method, normalized_payload, query, canonical_path, identity_value)
 
         response = requests.post(
             url=url,
             headers={
                 "Content-Type": "application/json",
-                PUBLIC_KEY_HEADER: public_key,
+                IDENTITY_HEADER: identity_value,
             },
             timeout=args.timeout,
             json=bridge_payload,

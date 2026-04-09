@@ -17,67 +17,83 @@ from report_proxy import (
     normalize_payload,
     print_structured_error,
     resolve_base_url,
-    resolve_public_key,
+    resolve_identity_value,
     validate_supported_path,
 )
 
 
 class ReportAgentProxyTest(unittest.TestCase):
 
+    fixed_fallback_identity_path = Path("/home/gem/workspace/agent/identity/device.json")
+
     def write_json_file(self, root, relative_path, payload):
         target = Path(root) / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-    def test_resolve_public_key_prefers_env_over_paired_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            self.write_json_file(
-                tmpdir,
-                "devices/paired.json",
-                {"device-1": {"clientId": "cli", "publicKey": "paired-public-key"}},
-            )
-            with patch.dict(
-                os.environ,
-                {"OPENCLAW_PUBLIC_KEY": "env-public-key", "OPENCLAW_STATE_DIR": tmpdir},
-                clear=False,
-            ):
-                self.assertEqual("env-public-key", resolve_public_key())
-
-    def test_resolve_public_key_falls_back_to_paired_file(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            self.write_json_file(
-                tmpdir,
-                "devices/paired.json",
-                {"device-1": {"clientId": "cli", "publicKey": "paired-public-key"}},
-            )
-            with patch.dict(
-                os.environ,
-                {"OPENCLAW_PUBLIC_KEY": "", "OPENCLAW_STATE_DIR": tmpdir},
-                clear=False,
-            ):
-                self.assertEqual("paired-public-key", resolve_public_key())
-
-    def test_resolve_public_key_does_not_use_identity_device_file(self):
+    def test_resolve_identity_value_prefers_env_over_identity_device_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             self.write_json_file(
                 tmpdir,
                 "identity/device.json",
-                {"publicKeyPem": "-----BEGIN PUBLIC KEY-----\nZmFrZQ==\n-----END PUBLIC KEY-----"},
+                {"deviceId": "device-id-from-file"},
             )
             with patch.dict(
                 os.environ,
-                {"OPENCLAW_PUBLIC_KEY": "", "OPENCLAW_STATE_DIR": tmpdir},
-                clear=False,
+                {"OPENCLAW_IDENTITY": "env-public-key", "OPENCLAW_STATE_DIR": tmpdir},
+                clear=True,
+            ):
+                self.assertEqual("env-public-key", resolve_identity_value())
+
+    def test_resolve_identity_value_falls_back_to_identity_device_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.write_json_file(
+                tmpdir,
+                "identity/device.json",
+                {"deviceId": "device-id-from-file"},
+            )
+            with patch.dict(
+                os.environ,
+                {"OPENCLAW_IDENTITY": "", "OPENCLAW_STATE_DIR": tmpdir},
+                clear=True,
+            ):
+                self.assertEqual("device-id-from-file", resolve_identity_value())
+
+    def test_resolve_identity_value_does_not_use_paired_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            self.write_json_file(
+                tmpdir,
+                "devices/paired.json",
+                {"device-1": {"clientId": "cli", "publicKey": "paired-public-key"}},
+            )
+            with patch.dict(
+                os.environ,
+                {"OPENCLAW_IDENTITY": "", "OPENCLAW_STATE_DIR": tmpdir},
+                clear=True,
             ):
                 with self.assertRaises(RuntimeError) as context:
-                    resolve_public_key()
+                    resolve_identity_value()
 
-            self.assertIn("OPENCLAW_PUBLIC_KEY", str(context.exception))
-            self.assertIn("paired.json", str(context.exception))
+            self.assertIn("OPENCLAW_IDENTITY", str(context.exception))
+            self.assertIn("identity/device.json", str(context.exception))
+
+    def test_resolve_identity_value_falls_back_to_fixed_agent_identity_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(
+                os.environ,
+                {"OPENCLAW_IDENTITY": "", "OPENCLAW_STATE_DIR": tmpdir},
+                clear=True,
+            ), patch(
+                "report_proxy.load_json_file",
+                side_effect=lambda path: {"deviceId": "device-id-from-fixed-fallback"}
+                if path == self.fixed_fallback_identity_path
+                else None,
+            ):
+                self.assertEqual("device-id-from-fixed-fallback", resolve_identity_value())
 
     def test_resolve_base_url_falls_back_to_default_test_host(self):
         with patch.dict("os.environ", {"SAAS_API_URL": ""}, clear=False):
-            self.assertEqual("https://test-shop-kaci.shouqianba.com", resolve_base_url())
+            self.assertEqual("https://shop-kaci.shouqianba.com", resolve_base_url())
 
     def test_build_bridge_url_uses_fixed_bridge_path(self):
         self.assertEqual(
