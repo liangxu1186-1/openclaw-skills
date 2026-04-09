@@ -16,7 +16,7 @@ warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL 1.1.
 QR_DURATION_SECONDS = 300
 QR_DURATION_LABEL = "5分钟"
 DEFAULT_TIMEOUT = 10
-DEFAULT_SAAS_API_URL = "https://shop-kaci.shouqianba.com"
+DEFAULT_SAAS_API_URL = "https://test-shop-kaci.shouqianba.com"
 QR_IMAGE_PATH = "/report/openclaw/binding/qr-image"
 
 
