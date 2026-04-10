@@ -21,6 +21,7 @@ METHOD_FIELD = "method"
 DEFAULT_TIMEOUT = 10
 DEFAULT_STATE_DIR = "~/.openclaw"
 DEFAULT_AGENT_IDENTITY_PATH = Path("/home/gem/workspace/agent/identity/device.json")
+DEFAULT_AGENT_CONFIG_PATH = Path("/home/gem/workspace/agent/openclaw.json")
 DEFAULT_SAAS_API_URL = "https://shop-kaci.shouqianba.com"
 DEFAULT_FLAG = 2
 MAX_RANGE_DAYS = 90
@@ -201,8 +202,37 @@ def identity_value_from_device_file(identity_path):
     return normalize_identity_value(payload.get("deviceId"))
 
 
+def identity_value_from_cloud_config(config_path):
+    payload = load_json_file(config_path)
+    if not isinstance(payload, dict):
+        return ""
+
+    feishu_config = payload.get("channels", {}).get("feishu", {})
+    if not isinstance(feishu_config, dict):
+        return ""
+
+    app_id = normalize_identity_value(feishu_config.get("appId"))
+    allow_from = feishu_config.get("allowFrom")
+    if not isinstance(allow_from, list):
+        return ""
+
+    open_id = ""
+    for candidate in allow_from:
+        open_id = normalize_identity_value(candidate)
+        if open_id:
+            break
+
+    if not app_id or not open_id:
+        return ""
+    return f"feishu-owner:{app_id}:{open_id}"
+
+
 def resolve_identity_value():
     identity_value = normalize_identity_value(os.getenv(PRIMARY_IDENTITY_ENV, ""))
+    if identity_value:
+        return identity_value
+
+    identity_value = identity_value_from_cloud_config(DEFAULT_AGENT_CONFIG_PATH)
     if identity_value:
         return identity_value
 
@@ -217,7 +247,8 @@ def resolve_identity_value():
 
     raise RuntimeError(
         "无法自动获取 OpenClaw 标识，请配置 OPENCLAW_IDENTITY，"
-        "或检查 ~/.openclaw/identity/device.json 与 /home/gem/workspace/agent/identity/device.json"
+        "或检查 /home/gem/workspace/agent/openclaw.json、"
+        "~/.openclaw/identity/device.json 与 /home/gem/workspace/agent/identity/device.json"
     )
 
 

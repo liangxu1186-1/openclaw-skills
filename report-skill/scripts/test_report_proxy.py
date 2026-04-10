@@ -25,6 +25,7 @@ from report_proxy import (
 class ReportAgentProxyTest(unittest.TestCase):
 
     fixed_fallback_identity_path = Path("/home/gem/workspace/agent/identity/device.json")
+    fixed_cloud_config_path = Path("/home/gem/workspace/agent/openclaw.json")
 
     def write_json_file(self, root, relative_path, payload):
         target = Path(root) / relative_path
@@ -90,6 +91,30 @@ class ReportAgentProxyTest(unittest.TestCase):
                 else None,
             ):
                 self.assertEqual("device-id-from-fixed-fallback", resolve_identity_value())
+
+    def test_resolve_identity_value_falls_back_to_feishu_owner_identity_from_cloud_config(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(
+                os.environ,
+                {"OPENCLAW_IDENTITY": "", "OPENCLAW_STATE_DIR": tmpdir},
+                clear=True,
+            ), patch(
+                "report_proxy.load_json_file",
+                side_effect=lambda path: {
+                    "channels": {
+                        "feishu": {
+                            "appId": "cli_a95d229d78785cbc",
+                            "allowFrom": ["ou_e012616c60661b6460fb9bf4bd4d9b5d"],
+                        }
+                    }
+                }
+                if path == self.fixed_cloud_config_path
+                else None,
+            ):
+                self.assertEqual(
+                    "feishu-owner:cli_a95d229d78785cbc:ou_e012616c60661b6460fb9bf4bd4d9b5d",
+                    resolve_identity_value(),
+                )
 
     def test_resolve_base_url_falls_back_to_default_test_host(self):
         with patch.dict("os.environ", {"SAAS_API_URL": ""}, clear=False):

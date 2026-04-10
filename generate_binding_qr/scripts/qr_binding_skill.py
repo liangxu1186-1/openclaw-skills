@@ -13,15 +13,19 @@ import warnings
 
 warnings.filterwarnings("ignore", message="urllib3 v2 only supports OpenSSL 1.1.1+")
 
-QR_DURATION_SECONDS = 300
-QR_DURATION_LABEL = "5分钟"
+QR_DURATION_SECONDS = 600
+QR_DURATION_LABEL = "10分钟"
 DEFAULT_TIMEOUT = 10
 DEFAULT_STATE_DIR = "~/.openclaw"
 DEFAULT_AGENT_IDENTITY_PATH = Path("/home/gem/workspace/agent/identity/device.json")
+DEFAULT_AGENT_CONFIG_PATH = Path("/home/gem/workspace/agent/openclaw.json")
 DEFAULT_SAAS_API_URL = "https://test-shop-kaci.shouqianba.com"
 QR_IMAGE_PATH = "/report/openclaw/binding/qr-image"
 PRIMARY_IDENTITY_ENV = "OPENCLAW_IDENTITY"
 IDENTITY_REQUEST_FIELD = "publicKey"
+BIND_TYPE_FIELD = "bindType"
+BIND_TYPE_UNBIND = 0
+BIND_TYPE_BIND = 1
 
 
 def ensure_python_dependencies() -> None:
@@ -100,6 +104,31 @@ def resolve_identity_value_from_device_file(identity_path: Path) -> Optional[str
     return normalize_identity_value(payload.get("deviceId"))
 
 
+def resolve_identity_value_from_cloud_config(config_path: Path) -> Optional[str]:
+    payload = load_json_file(config_path)
+    if not isinstance(payload, dict):
+        return None
+
+    feishu_config = payload.get("channels", {}).get("feishu", {})
+    if not isinstance(feishu_config, dict):
+        return None
+
+    app_id = normalize_identity_value(feishu_config.get("appId"))
+    allow_from = feishu_config.get("allowFrom")
+    if not isinstance(allow_from, list):
+        return None
+
+    open_id = None
+    for candidate in allow_from:
+        open_id = normalize_identity_value(candidate)
+        if open_id:
+            break
+
+    if not app_id or not open_id:
+        return None
+    return f"feishu-owner:{app_id}:{open_id}"
+
+
 def resolve_identity_value(explicit_identity: Optional[str]) -> Optional[str]:
     normalized_explicit_identity = normalize_identity_value(explicit_identity)
     if normalized_explicit_identity:
@@ -108,6 +137,10 @@ def resolve_identity_value(explicit_identity: Optional[str]) -> Optional[str]:
     env_identity = normalize_identity_value(os.getenv(PRIMARY_IDENTITY_ENV))
     if env_identity:
         return env_identity
+
+    identity_value = resolve_identity_value_from_cloud_config(DEFAULT_AGENT_CONFIG_PATH)
+    if identity_value:
+        return identity_value
 
     identity_value = resolve_identity_value_from_device_file(get_state_dir() / "identity" / "device.json")
     if identity_value:
@@ -122,6 +155,14 @@ def resolve_base_url() -> str:
     if base_url:
         return base_url
     raise RuntimeError("SAAS_API_URL 未配置，且默认 SaaS API 地址为空")
+
+
+def normalize_bind_type(bind_type: Optional[int]) -> int:
+    if bind_type is None:
+        return BIND_TYPE_BIND
+    if bind_type in (BIND_TYPE_BIND, BIND_TYPE_UNBIND):
+        return bind_type
+    raise ValueError("bindType 只允许为 0 或 1")
 
 
 def build_qr_image_url(base_url: str) -> str:
@@ -142,19 +183,21 @@ def extract_image_url(response_json: object) -> str:
     raise RuntimeError("二维码图片接口未返回 imageUrl")
 
 
-def fetch_remote_qr_image_url(identity_value: Optional[str]) -> str:
+def fetch_remote_qr_image_url(identity_value: Optional[str], bind_type: Optional[int]) -> str:
     resolved_identity = resolve_identity_value(identity_value)
     if not resolved_identity:
         raise RuntimeError(
             "错误：未能在系统中找到 OpenClaw 标识，请手动提供或检查 OPENCLAW_IDENTITY、"
-            "identity/device.json，或固定路径 /home/gem/workspace/agent/identity/device.json。"
+            "/home/gem/workspace/agent/openclaw.json、identity/device.json，"
+            "或固定路径 /home/gem/workspace/agent/identity/device.json。"
         )
+    normalized_bind_type = normalize_bind_type(bind_type)
 
     endpoint = build_qr_image_url(resolve_base_url())
     try:
         response = requests.post(
             endpoint,
-            json={IDENTITY_REQUEST_FIELD: resolved_identity},
+            json={IDENTITY_REQUEST_FIELD: resolved_identity, BIND_TYPE_FIELD: normalized_bind_type},
             timeout=DEFAULT_TIMEOUT,
         )
         response.raise_for_status()
@@ -211,8 +254,10 @@ def encode_png_bytes_as_data_uri(image_bytes: bytes) -> str:
     return "data:image/png;base64," + base64.b64encode(image_bytes).decode("ascii")
 
 
-def render_markdown_result(media_path: str) -> str:
-    return f"请在{QR_DURATION_LABEL}内使用云助手小程序扫码绑定\n![扫码绑定]({media_path})"
+def render_markdown_result(media_path: str, bind_type: Optional[int]) -> str:
+    normalized_bind_type = normalize_bind_type(bind_type)
+    action = "解绑" if normalized_bind_type == BIND_TYPE_UNBIND else "绑定"
+    return f"请在{QR_DURATION_LABEL}内使用云助手小程序扫码{action}\n![扫码{action}]({media_path})"
 
 
 def write_output(content: str) -> None:
@@ -272,6 +317,7 @@ def run_warmup(trace: bool):
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate an OpenClaw binding QR code.")
     parser.add_argument("--identity", help="Explicit OpenClaw identity value", default=None)
+    parser.add_argument("--bind-type", type=int, choices=[0, 1], default=1, help="二维码类型：1=绑定，0=解绑")
     parser.add_argument(
         "--format",
         choices=["image-url", "markdown"],
@@ -292,12 +338,12 @@ def main() -> None:
         return
 
     if args.format == "markdown":
-        image_url = fetch_remote_qr_image_url(args.identity)
+        image_url = fetch_remote_qr_image_url(args.identity, args.bind_type)
         image_bytes = download_remote_qr_image_bytes(image_url)
-        write_output(render_markdown_result(encode_png_bytes_as_data_uri(image_bytes)))
+        write_output(render_markdown_result(encode_png_bytes_as_data_uri(image_bytes), args.bind_type))
         return
 
-    write_output(fetch_remote_qr_image_url(args.identity))
+    write_output(fetch_remote_qr_image_url(args.identity, args.bind_type))
 
 
 if __name__ == "__main__":
